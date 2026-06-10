@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """
 PDF catalog extraction pipeline for O'Reilly/Microgard All Makes catalog.
-Supports multiple section configs; currently implements AIR_CABIN section.
+Supports multiple section configs: AIR_CABIN and OIL sections.
 
 Usage:
     python3 tools/catalog_extract.py --section aircabin --pages 420-916 \
         --db data/aircabin_staging.db --pdf data/microgard.pdf
+
+    python3 tools/catalog_extract.py --section oil --pages 6-419 \
+        --db data/oilfilter_staging.db --pdf data/microgard.pdf
 
 Design:
   - Uses pdftohtml -xml via subprocess (stdlib only; avoids broken pypdf/pdfminer)
@@ -17,6 +20,8 @@ Design:
   - N/R, N/A, N/S cells → NULL (nothing stored)
   - Sidebar single-letter elements excluded by x-position guard
   - HEPA variants detected by HP suffix in cabin Microgard column
+  - Oil section: qualifier text (" - 4WD", " - Police", etc.) split from part numbers
+    and stored in application_parts.qualifier; makes detected mid-page at any x position
 """
 
 import argparse
@@ -27,7 +32,7 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 # ─────────────────────────── Section configs ──────────────────────────────────
 
@@ -46,7 +51,38 @@ SECTION_CONFIGS = {
         # Regex matching brand-header label text (applied after stripping HTML)
         "header_label_re": re.compile(r"^(microgard|wix|k&n|k&amp;n)$", re.IGNORECASE),
     },
-    # Oil filter section: add here with different column set
+    # ── Oil filter section (PDF pages 6-419) ──────────────────────────────────
+    # Columns left→right: Microgard (MGL#####), Microgard Select (MSL#####),
+    # WIX (5-digit or WL#####), WIX XP (#####XP or WL#####XP),
+    # Mobil 1 (M1-### / M1C-###), K&N (HP-#### / HP-7###)
+    # Header labels per page: "Microgard" (×2: one above Select, one top row),
+    # "Select", "WIX", "WIX XP", "Mobil 1", "K&N"
+    # derive_column_bands finds 6 bands by matching header_label_re against
+    # elements in the top 60-145 px zone, then merging near-duplicates.
+    # The "Microgard"/"Select" pair merge into one band (within 10px), giving
+    # exactly 6 bands: [Microgard, MicrogardSelect, WIX, WIXP, Mobil1, KN].
+    "oil": {
+        "columns": [
+            {"brand": "MICROGARD",        "filter_category": "oil", "name": "microgard"},
+            {"brand": "MICROGARD SELECT", "filter_category": "oil", "name": "microgard_select"},
+            {"brand": "WIX",              "filter_category": "oil", "name": "wix"},
+            {"brand": "WIX XP",          "filter_category": "oil", "name": "wix_xp"},
+            {"brand": "MOBIL1",           "filter_category": "oil", "name": "mobil1"},
+            {"brand": "K&N",              "filter_category": "oil", "name": "kn"},
+        ],
+        "footnote_pages": [3, 4, 5],
+        # Match column header labels (top 60-145 px) — note "select" alone matches
+        # the "Select" sub-label of Microgard Select; it merges with adjacent "Microgard"
+        "header_label_re": re.compile(
+            r"^(microgard|select|wix|wix\s*xp|mobil\s*1|k&n|k&amp;n)$",
+            re.IGNORECASE,
+        ),
+        # Qualifier pattern: part numbers may carry " - <descriptor>" suffixes
+        # (e.g. "MGL51036 - 4WD", "57047XP - (Short)").  Strip and store separately.
+        "qualifier_re": re.compile(
+            r"\s*-\s*(.+)$"
+        ),
+    },
 }
 
 # ─────────────────────────── DB schema ────────────────────────────────────────
@@ -86,6 +122,7 @@ CREATE TABLE IF NOT EXISTS application_parts (
     source_column          TEXT NOT NULL,
     raw_part_number        TEXT NOT NULL,
     normalized_part_number TEXT,
+    qualifier              TEXT,
     footnote               TEXT,
     confidence             TEXT NOT NULL,
     status                 TEXT NOT NULL,
@@ -230,26 +267,54 @@ def assign_column(left: int, bands) -> int:
 NR_VALS = {"N/R", "N/A", "N/S", "NR", "NA", "NS"}
 _NR_PREFIX_RE = re.compile(r'^N/?[ARS]', re.IGNORECASE)
 
+# Qualifier suffixes that may be appended to part numbers with " - "
+# e.g. "MGL51036 - 4WD", "57047XP - (Short)", "M1C-155A - Police"
+# Qualifier always follows a part-number-like prefix separated by " - "
+_QUALIFIER_SPLIT_RE = re.compile(
+    r'^([A-Z0-9][A-Z0-9\-]*[A-Z0-9])\s+-\s+(.+)$',
+    re.IGNORECASE
+)
+
+# Standalone qualifier elements: text is just "- <descriptor>" with no part number
+_STANDALONE_QUALIFIER_RE = re.compile(r'^-\s+(.+)$')
+
+
 def is_nr(text: str) -> bool:
     t = text.strip().upper()
     return t in NR_VALS or _NR_PREFIX_RE.match(t) is not None
 
 
 def is_valid_part(text: str) -> bool:
-    """True if text plausibly contains a part number."""
+    """True if text plausibly contains a part number (may include qualifier after ' - ')."""
     t = text.strip()
-    if len(t) < 3:
+    # Strip possible qualifier to check the part prefix
+    m = _QUALIFIER_SPLIT_RE.match(t)
+    core = m.group(1) if m else t
+    if len(core) < 3:
         return False
-    if not any(c.isdigit() for c in t):
+    if not any(c.isdigit() for c in core):
         return False
     return True
 
 
+def split_qualifier(raw: str):
+    """
+    Split a raw part-number string into (part_number, qualifier_or_None).
+    e.g. "MGL51036 - 4WD"  -> ("MGL51036", "4WD")
+         "57356XP - (Short)" -> ("57356XP", "(Short)")
+         "MGL57356"          -> ("MGL57356", None)
+    """
+    m = _QUALIFIER_SPLIT_RE.match(raw.strip())
+    if m:
+        return m.group(1).strip(), m.group(2).strip()
+    return raw.strip(), None
+
+
 def normalize_part(raw: str) -> str:
-    """Normalize a part number: strip whitespace, uppercase, remove trailing annotations."""
-    s = raw.strip().upper()
-    # Strip trailing annotation like " - Left", " - Right", " - Old Body Style", etc.
-    s = re.sub(r'\s*-\s*[A-Z].*$', '', s).strip()
+    """Normalize a part number: strip whitespace, uppercase, remove qualifier suffix."""
+    # Strip qualifier first
+    core, _ = split_qualifier(raw)
+    s = core.strip().upper()
     return s
 
 
@@ -482,6 +547,9 @@ def parse_page(page_elem, page_num, pdf_path, section_config,
         line_top = line[0].top
 
         # ── Make header (size18 non-black-italic, not sidebar) ──
+        # In the oil section, make headers appear mid-page at any x position
+        # (e.g. "GENESIS" at x=426, mid-column zone). We detect them by role='make'
+        # regardless of x, trusting font-size classification (sz=18, black, not arial-black).
         makes = [e for e in line if e.role == "make"]
         if makes:
             txt = makes[0].text
@@ -617,12 +685,30 @@ def parse_page(page_elem, page_num, pdf_path, section_config,
                     break
 
         # ── Part numbers on right side ──
+        # Track last seen column index on this line so standalone qualifier elements
+        # ("- 4WD" at x=535 after a WIX number) can be associated with that column.
+        last_ci_on_line = -1
         for e in right_side:
             txt = e.text.strip()
             if not txt or is_nr(txt):
                 continue
             if IGNORE_TEXT_RE.match(txt):
                 continue
+
+            # Handle standalone qualifier elements: "- 4WD", "- Police", etc.
+            # These appear when the qualifier overflows the part cell; attach to last col.
+            standalone_q = _STANDALONE_QUALIFIER_RE.match(txt)
+            if standalone_q and last_ci_on_line >= 0 and current_engine is not None:
+                q_text = standalone_q.group(1).strip()
+                if pending_parts[last_ci_on_line]:
+                    prev_raw, prev_fn, prev_hepa = pending_parts[last_ci_on_line][-1]
+                    # Attach qualifier to previous part if it doesn't already have one
+                    if ' - ' not in prev_raw:
+                        pending_parts[last_ci_on_line][-1] = (
+                            prev_raw + " - " + q_text, prev_fn, prev_hepa
+                        )
+                continue
+
             if not is_valid_part(txt):
                 continue
 
@@ -630,6 +716,7 @@ def parse_page(page_elem, page_num, pdf_path, section_config,
             if ci < 0:
                 continue
 
+            last_ci_on_line = ci
             fn = find_super(e.left, e.top, e.width)
 
             is_hepa = ci == 3 and txt.upper().endswith("HP")
@@ -716,29 +803,31 @@ def run_extraction(pdf_path: str, start_page: int, end_page: int,
                 if ci == 6:
                     # HEPA parts
                     for raw, fn, _ in row["parts"][ci]:
+                        core, qual = split_qualifier(raw)
                         norm = normalize_part(raw)
                         conn.execute(
                             """INSERT INTO application_parts
                                (application_row_id,filter_category,brand,source_column,
-                                raw_part_number,normalized_part_number,footnote,
+                                raw_part_number,normalized_part_number,qualifier,footnote,
                                 confidence,status)
-                               VALUES (?,?,?,?,?,?,?,?,?)""",
+                               VALUES (?,?,?,?,?,?,?,?,?,?)""",
                             (row_id, "cabin_air", "MICROGARD HEPA", "mg_cabin_hepa",
-                             raw, norm, fn, "high", "extracted")
+                             core, norm, qual, fn, "high", "extracted")
                         )
                         total_parts += 1
                 else:
                     col_cfg = columns[ci]
                     for raw, fn, _ in row["parts"][ci]:
+                        core, qual = split_qualifier(raw)
                         norm = normalize_part(raw)
                         conn.execute(
                             """INSERT INTO application_parts
                                (application_row_id,filter_category,brand,source_column,
-                                raw_part_number,normalized_part_number,footnote,
+                                raw_part_number,normalized_part_number,qualifier,footnote,
                                 confidence,status)
-                               VALUES (?,?,?,?,?,?,?,?,?)""",
+                               VALUES (?,?,?,?,?,?,?,?,?,?)""",
                             (row_id, col_cfg["filter_category"], col_cfg["brand"],
-                             col_cfg["name"], raw, norm, fn, "high", "extracted")
+                             col_cfg["name"], core, norm, qual, fn, "high", "extracted")
                         )
                         total_parts += 1
 
