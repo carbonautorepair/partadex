@@ -58,8 +58,37 @@ HEADER_JUNK = re.compile(
 
 FUEL_TYPES = {
     'DIESEL', 'GAS', 'FLEX', 'HYBRID', 'ELECTRIC', 'CNG', 'LPG',
-    'TURBO', 'SUPERCHARGED', 'FFV', 'NATURAL GAS'
+    'TURBO', 'SUPERCHARGED', 'FFV', 'NATURAL GAS', 'ECOBOOST',
+    'ECOBOOST TURBO', 'ELECTRIC/GAS', 'PLUG-IN HYBRID',
 }
+
+ENGINE_CODE_PATTERN = re.compile(
+    r'^[A-Z]\d{2}[A-Z]\d+[A-Z]?$|'    # N52B30A, W10B16A, N26B20A
+    r'^[A-Z]{2}\d{2}[A-Z]{2}$|'        # VQ35HR, QR25DE
+    r'^[A-Z]{2,4}\d{1,3}$|'            # ED3, EDG3
+    r'^\d[A-Z]{2,}\d*[A-Z]*$|'         # 4GRFSE, 2UZFE
+    r'^[A-Z]\d{2,}[A-Z]*\d*$|'         # L15CA
+    r'^[A-Z]{2}\d{2}[A-Z]\d+$|'        # FB25BC-like
+    r'^[A-Z]\*$|'                       # P*
+    r'^Charged$|^See$|^Ver$|^Voir$',    # header/continuation junk
+    re.IGNORECASE
+)
+
+KNOWN_ENGINE_CODES = {
+    'CCTA', 'EDG', 'ED3', 'ED6', 'EDE', 'ERB', 'ERE',
+    'CBFA', 'CAEB', 'CPMA', 'CNCD', 'CHPA', 'CPLA',
+    'CYMC', 'CJAA', 'CKRA', 'CPKA', 'CZCA', 'CZDA',
+    'CZEA', 'CZTA', 'DKZA', 'DGUA', 'DFHA', 'DFKA',
+}
+
+MODEL_WHITELIST = {'H3T', 'H3X', 'GT', 'TT', 'XC40', 'XC60', 'XC90',
+                   'CT4', 'CT5', 'CT6', 'XT4', 'XT5', 'XT6',
+                   'CX3', 'CX5', 'CX9', 'MX5', 'MX30',
+                   'Q3', 'Q5', 'Q7', 'Q8', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8',
+                   'S3', 'S4', 'S5', 'S6', 'S7', 'S8',
+                   'X1', 'X2', 'X3', 'X4', 'X5', 'X6', 'X7',
+                   'Z4', 'M2', 'M3', 'M4', 'M5', 'M6', 'M8',
+                   'C30', 'C70', 'S40', 'S60', 'S80', 'S90', 'V40', 'V60', 'V90'}
 
 MAKE_PATTERN = re.compile(
     r'\b(ACURA|ALFA ROMEO|AUDI|BMW|BUICK|CADILLAC|CHEVROLET|CHRYSLER|'
@@ -112,6 +141,32 @@ def separate_footnote(chars_in_word):
     return ''.join(part), ''.join(footnote)
 
 
+PART_BASE_PATTERNS = {
+    'microgard':        re.compile(r'^(MGL\d{5,6})(\d{2,3})$'),
+    'microgard_select': re.compile(r'^(MSL\d{5,6})(\d{2,3})$'),
+    'wix':              re.compile(r'^(\d{5,6})(\d{2,3})$'),
+    'wix_xp':           re.compile(r'^(\d{5,6}XP)(\d{2,3})$'),
+    'mobil1':           re.compile(r'^(M1C?-\d{3,4}[A-Z]?)(\d{2,3})$'),
+    'kn':               re.compile(r'^(HP-\d{4,5})(\d{2,3})$'),
+    'air_microgard':    re.compile(r'^(MGA\d{5,6})(\d{2,3})$'),
+    'air_wix':          re.compile(r'^(\d{2}-\d{4,5})(\d{2,3})$'),
+    'air_kn':           re.compile(r'^(\d{2}-\d{4,5})(\d{2,3})$'),
+    'cabin_microgard':  re.compile(r'^(MGA\d{5,6})(\d{2,3})$'),
+    'cabin_wix':        re.compile(r'^(WP\d{5,6})(\d{2,3})$'),
+    'cabin_kn':         re.compile(r'^(VF\d{4,5})(\d{2,3})$'),
+}
+
+
+def strip_trailing_footnote(part_num, col_name):
+    """Fallback: split trailing footnote digits from part number by pattern."""
+    pattern = PART_BASE_PATTERNS.get(col_name)
+    if pattern:
+        m = pattern.match(part_num)
+        if m:
+            return m.group(1), m.group(2)
+    return part_num, ''
+
+
 def dedup_microgard(val):
     """Fix MGA4284342843 → MGA42843 (doubled part number)."""
     if not val:
@@ -140,11 +195,19 @@ def is_year(text):
 def is_model_junk(text):
     """Reject text that shouldn't be treated as a model name."""
     t = text.upper().strip()
+    if t in MODEL_WHITELIST:
+        return False
     if t in FUEL_TYPES:
+        return True
+    if t in KNOWN_ENGINE_CODES:
         return True
     if JUNK_PATTERNS.match(t):
         return True
     if re.match(r'^(L\d|V\d|H\d|W\d|I\d)', t) and 'L' in t:
+        return True
+    if ENGINE_CODE_PATTERN.match(t):
+        return True
+    if '/' in t and any(w in t for w in ('GAS', 'ELECTRIC', 'DIESEL', 'HYBRID')):
         return True
     return False
 
@@ -281,6 +344,11 @@ def extract_section(pdf, start_page, end_page, columns, section_name):
                 # Apply Microgard dedup
                 if 'microgard' in col_name:
                     part_num = dedup_microgard(part_num)
+
+                # Fallback footnote strip: if font-size detection didn't split,
+                # try pattern-based separation for known part formats
+                if not footnote and part_num:
+                    part_num, footnote = strip_trailing_footnote(part_num, col_name)
 
                 if part_num and len(part_num) >= 3:
                     part_values[col_name] = {
