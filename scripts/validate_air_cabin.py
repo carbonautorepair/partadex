@@ -59,7 +59,7 @@ def new_rows():
             if r.make != mk:
                 continue
             seen, parts = set(), set()
-            for col, cat, _, part, fn in r.parts:
+            for col, cat, _, part, fn, qual in r.parts:
                 k = (col, part, fn)
                 if k in seen:
                     continue

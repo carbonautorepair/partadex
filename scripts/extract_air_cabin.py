@@ -225,18 +225,30 @@ def extract_pages(doc, first, last, state=None):
                         cur.fn = sp[1]
 
             for s, ssups in parts:
+                text = s[1].strip()
+                # position/variant qualifiers: either glued ("49257 - Left")
+                # or a standalone span (" - Right") that drifts into the next
+                # column's bin — attach those to the preceding part.
+                qual = None
+                if text.startswith('-'):
+                    if cur.parts:
+                        p = cur.parts[-1]
+                        cur.parts[-1] = p[:5] + (text.lstrip('- ').strip(),)
+                    continue
+                if ' - ' in text:
+                    text, qual = (t.strip() for t in text.split(' - ', 1))
                 relx = s[0] - origin
                 col = min(PART_COLS, key=lambda c: abs(relx - c[3]))
                 if abs(relx - col[3]) > PART_SNAP:
                     col = ('unknown_column', 'cabin_air', 'UNKNOWN', relx)
                 fn = next((sp[1] for sp in ssups if sp[1].isdigit()), None)
-                for token in s[1].split(','):
+                for token in text.split(','):
                     token = token.strip()
                     # 'N/A'/'N/R'/'N/S' = not offered (sometimes with a glued
                     # footnote digit when the superscript flag is lost)
                     if not token or token.startswith('N/'):
                         continue
-                    cur.parts.append((col[0], col[1], col[2], token, fn))
+                    cur.parts.append((col[0], col[1], col[2], token, fn, qual))
         # page break: keep cur open only if next page continues same make
     close()
     return rows
@@ -268,7 +280,7 @@ def write_run(con, rows, note):
              'needs_spot_check', None, r.vin or None))
         row_id = cur.lastrowid
         seen = set()
-        for col, cat, _, part, fn in r.parts:
+        for col, cat, _, part, fn, qual in r.parts:
             key = (col, part, fn)
             if key in seen:
                 continue
@@ -280,7 +292,7 @@ def write_run(con, rows, note):
                  confidence, status, notes)
                 values (?,?,?,?,?,?,?,?,?,?)""",
                 (row_id, cat, brand_for(col, part), col, raw, part, fn,
-                 'parsed', 'ok', None))
+                 'parsed', 'ok', qual))
             n_parts += 1
     con.commit()
     return run_id, n_parts
