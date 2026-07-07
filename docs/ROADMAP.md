@@ -7,11 +7,11 @@ piecemeal so any partial state is still a usable index.
 
 | Category | Status | Data |
 |---|---|---|
-| Oil filters | ~complete 2004–2023 | `data/oilfilter.db` — 11,453 vehicles, 328 filter sets (Microgard / Microgard Select / WIX / WIX XP / Mobil1 / K&N) |
-| Engine air filters | Toyota/Lexus/Honda staged | `data/filter_catalog_staging.db` run 1 |
-| Cabin air filters | Toyota/Lexus/Honda staged | `data/filter_catalog_staging.db` run 1 |
-| Brake pads | not started | — |
-| Brake rotors | not started | — |
+| Oil filters | complete 2004–2023, verified + backfilled vs source | `data/oilfilter.db` — ~11,500 vehicles, 48 makes (Microgard / Microgard Select / WIX / WIX XP / Mobil1 / K&N) |
+| Engine air filters | **complete 2004–2023, all 48 makes** | `data/aircabin.db` — 13,124 vehicles, 753 air sets (Microgard / WIX / K&N) |
+| Cabin air filters | **complete 2004–2023, all 48 makes** | `data/aircabin.db` — 523 cabin sets (Microgard / Microgard HEPA / WIX / K&N) |
+| Brake pads | blocked on source material | see task notes: BrakeBest/Raybestos catalogs are network-blocked from this env; user to supply PDFs (Google Drive) or allowlist domains |
+| Brake rotors | blocked on source material | same as brake pads |
 
 Primary source so far: `data/microgard.pdf` — O'Reilly 2023 All-Makes Filter
 Catalog, 922 pages. Oil filter applications on pages 5–~410; **Air & Cabin Air
