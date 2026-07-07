@@ -94,3 +94,28 @@ Footnotes can also attach to the model/engine (row_footnote).
   (treat run-1 `UNKNOWN_CABIN_COLUMN` as `K&N`/`kn_cabin_air`). Target ≥99%
   agreement; investigate every diff in the PDF — some may be run-1 bugs, which
   is fine if documented.
+
+## Validation result (2026-07-07, scripts/validate_air_cabin.py)
+
+99.84% of run-1 rows and 98.02% of their part sets reproduced exactly. Every
+residual diff was checked against the PDF; all favor the new extractor:
+
+- Make sections start **mid-page**: the `MAKE_PAGES` ranges above are
+  top-of-page running heads, so scan from `first - 1` and attribute by the
+  in-body make headers. Run 1 missed the first block of each section this way
+  (e.g. LEXUS 2023 ES 250–LC 500, TOYOTA 2023 4 Runner–Corolla Cross).
+- Run 1 dropped part lines near page bottoms (y ≳ 705) and rows continuing
+  across page breaks; keep rows open until the next anchor.
+- Run 1 glued superscript footnotes into part numbers (`3041175`,
+  `WP10369322`, `WA10408541`) and made a part out of `N/A` + footnote
+  (`NA1`); split via superscript spans and skip `N/`-prefixed tokens.
+- Run 1 truncated the two-line model "Clarity Plug-in Hybrid" to
+  "Clarity Plug-in".
+- Row-split rule (reproduces run 1 exactly elsewhere): a left-column line
+  with parts on its own line is a NEW application unless its text is a pure
+  engine modifier (`Electric/Gas` etc., see `WRAP_VOCAB`); part-less left
+  lines are wrapped engine text. MIRAI's two lines are genuinely separate
+  applications (different cabin filters per line).
+- New runs also capture the VIN column (`application_rows.vin`, added by the
+  extractor via ALTER TABLE) and clone shared engine text onto
+  code-variant rows instead of leaving engine empty.
