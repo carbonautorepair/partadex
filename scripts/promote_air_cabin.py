@@ -17,6 +17,12 @@ STAGING_DB = '/home/user/partadex/data/filter_catalog_staging.db'
 OUTPUT_DB = '/home/user/partadex/data/aircabin.db'
 PDF_PATH = '/home/user/partadex/data/microgard.pdf'
 
+# Catalog section headers -> canonical make names (align with oilfilter.db)
+MAKE_NORMALIZE = {
+    'GMC LIGHT TRUCKS': 'GMC',
+    'DODGE (ALSO SEE RAM)': 'DODGE',
+}
+
 
 def extract_footnotes_from_pdf():
     """
@@ -105,7 +111,7 @@ def load_application_data(cursor, make_to_run):
         # Only include rows where run_id is the latest for this make
         if make_to_run[make] == run_id:
             rows[row_id] = {
-                'make': make,
+                'make': MAKE_NORMALIZE.get(make, make),
                 'year': year,
                 'model': model,
                 'engine': engine or '',

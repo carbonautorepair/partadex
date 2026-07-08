@@ -13,6 +13,13 @@ Ultimate automotive parts interchange catalogue.
 | `scripts/` | Deterministic extract / validate / promote pipeline. |
 | `docs/` | Roadmap, extraction spec, schema design. |
 
+## Quick lookup
+
+```sh
+python3 scripts/lookup.py vehicle HONDA CIVIC 2015   # all filters for a vehicle
+python3 scripts/lookup.py part WP10320               # cross-brand interchange
+```
+
 ## Example queries
 
 ```sh
