@@ -8,8 +8,10 @@ Ultimate automotive parts interchange catalogue.
 |---|---|
 | `data/oilfilter.db` | Oil filter applications, 48 makes, 2004–2023 (~11,500 vehicles). Brands: Microgard, Microgard Select, WIX, WIX XP, Mobil 1, K&N. |
 | `data/aircabin.db` | Engine air + cabin air filter applications (Microgard / Microgard HEPA / WIX / K&N). Growing make-by-make; see `docs/ROADMAP.md` for coverage. |
+| `data/brakes.db` | Brake pad applications, 73 makes, 1967–2020 (BrakeBest Select Ceramic / Bendix / Semi-Metallic + FMSI D-numbers). |
 | `data/filter_catalog_staging.db` | Raw extraction staging with page/position provenance for every row. |
 | `data/microgard.pdf` | Source: O'Reilly 2023 All-Makes Filter Catalog (922 pp). |
+| `data/brakebest_ceramic_pads.pdf` | Source: BrakeBest Select ceramic pads application guide (179 pp). |
 | `scripts/` | Deterministic extract / validate / promote pipeline. |
 | `docs/` | Roadmap, extraction spec, schema design. |
 

@@ -14,6 +14,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 OIL = os.path.join(HERE, '..', 'data', 'oilfilter.db')
 AIRCABIN = os.path.join(HERE, '..', 'data', 'aircabin.db')
+BRAKES = os.path.join(HERE, '..', 'data', 'brakes.db')
 
 OIL_BRANDS = [('microgard', 'Microgard'), ('microgard_select', 'Microgard Select'),
               ('wix', 'WIX'), ('wix_xp', 'WIX XP'), ('mobil1', 'Mobil 1'),
@@ -63,6 +64,23 @@ def vehicle(make, model, year=None):
             print(f'    engine air: {air}')
         if cab:
             print(f'    cabin air:  {cab}')
+    if os.path.exists(BRAKES):
+        con = sqlite3.connect(BRAKES)
+        con.row_factory = sqlite3.Row
+        print('== BRAKE PADS ==')
+        cond = ' AND ? BETWEEN year_start AND year_end' if year else ''
+        args = [make.title(), model.title() + '%'] + ([int(year)] if year else [])
+        for r in con.execute(
+                f"SELECT * FROM pad_applications WHERE upper(make)=upper(?) "
+                f"AND upper(model) LIKE upper(?){cond} "
+                f"ORDER BY year_end DESC, position", args):
+            parts = ' | '.join(f'{l}: {r[k]}' for k, l in
+                               [('brakebest_ceramic', 'BrakeBest Ceramic'),
+                                ('bendix', 'Bendix'),
+                                ('semi_metallic', 'Semi-Metallic')] if r[k])
+            print(f"  {r['year_start']}-{r['year_end']} {r['model']} "
+                  f"{r['position']}: {r['application']}")
+            print(f"    {parts} | FMSI: {r['fmsi']}")
 
 
 def part(number):
@@ -93,6 +111,25 @@ def part(number):
     scan(AIRCABIN, 'cabin_filter_sets', CABIN_BRANDS,
          "SELECT count(*), group_concat(DISTINCT make) FROM vehicles WHERE cabin_set_id=?",
          'CABIN AIR')
+    if os.path.exists(BRAKES):
+        con = sqlite3.connect(BRAKES)
+        con.row_factory = sqlite3.Row
+        seen = set()
+        for r in con.execute(
+                "SELECT * FROM pad_applications WHERE upper(brakebest_ceramic) LIKE ? "
+                "OR upper(bendix) LIKE ? OR upper(semi_metallic) LIKE ? OR upper(fmsi)=?",
+                (num + '%', num + '%', num + '%', num)):
+            key = (r['brakebest_ceramic'], r['bendix'], r['semi_metallic'], r['fmsi'])
+            if key in seen:
+                continue
+            seen.add(key)
+            n, apps = con.execute(
+                "SELECT count(*), group_concat(DISTINCT make) FROM pad_applications "
+                "WHERE coalesce(fmsi,'')=coalesce(?,'')", (r['fmsi'],)).fetchone()
+            print('BRAKE PAD interchange (via FMSI):')
+            print(f"  FMSI {r['fmsi']} | BrakeBest Ceramic: {r['brakebest_ceramic']} | "
+                  f"Bendix: {r['bendix']} | Semi-Metallic: {r['semi_metallic']}")
+            print(f'  fits {n} applications ({apps})')
 
 
 if __name__ == '__main__':
