@@ -81,6 +81,14 @@ def vehicle(make, model, year=None):
             print(f"  {r['year_start']}-{r['year_end']} {r['model']} "
                   f"{r['position']}: {r['application']}")
             print(f"    {parts} | FMSI: {r['fmsi']}")
+        print('== BRAKE ROTORS / DRUMS ==')
+        for r in con.execute(
+                f"SELECT * FROM rotor_applications WHERE upper(make)=upper(?) "
+                f"AND upper(model) LIKE upper(?){cond} "
+                f"ORDER BY year_end DESC, position, line", args):
+            print(f"  {r['year_start']}-{r['year_end']} {r['model']} "
+                  f"{r['position']} {r['product']}: {r['qualifiers']}")
+            print(f"    BrakeBest ({r['line']}): {r['part_number']}")
 
 
 def part(number):
@@ -130,6 +138,12 @@ def part(number):
             print(f"  FMSI {r['fmsi']} | BrakeBest Ceramic: {r['brakebest_ceramic']} | "
                   f"Bendix: {r['bendix']} | Semi-Metallic: {r['semi_metallic']}")
             print(f'  fits {n} applications ({apps})')
+        for r in con.execute(
+                "SELECT part_number, line, count(*) n, group_concat(DISTINCT make) apps "
+                "FROM rotor_applications WHERE upper(part_number) LIKE ? "
+                "GROUP BY part_number, line", (num + '%',)):
+            print(f"ROTOR/DRUM part {r['part_number']} (BrakeBest {r['line']}): "
+                  f"fits {r['n']} applications ({r['apps']})")
 
 
 if __name__ == '__main__':
