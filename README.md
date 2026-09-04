@@ -1,6 +1,13 @@
 # partadex
 Ultimate automotive parts interchange catalogue
 
+Free oil-filter web app: [Partadex](https://partadex.enixone.chatgpt.site).
+
+Start with a part number, compare direct catalog cross-references, and check vehicle/engine applications and source conditions. Oil-filter lookup stays free. The first release is an installable web app; the catalog remains incomplete.
+
+See [release roadmap](docs/RELEASE_ROADMAP.md) and [source register](docs/SOURCE_REGISTER.md). The MIT software license does not itself grant third-party catalog rights. Report gaps through this repository's Issues, with a source page or manufacturer reference when possible.
+
+
 ## Coverage-gap report + supplemental backfill workflow
 
 The canonical catalog lives in `data/partadex.db` (built by

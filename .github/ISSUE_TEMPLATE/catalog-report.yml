@@ -1,0 +1,30 @@
+name: Catalog gap or correction
+description: Report an oil-filter lookup issue with source evidence.
+title: "Catalog: "
+body:
+  - type: markdown
+    attributes:
+      value: "Thanks for helping improve Partadex. Reports are public. Do not include customer names, contact details, plates or other personal information."
+  - type: input
+    id: number
+    attributes:
+      label: Part number and brand
+      placeholder: WIX 51348
+    validations:
+      required: true
+  - type: input
+    id: vehicle
+    attributes:
+      label: Vehicle year, make, model and engine
+      description: Include these if the report concerns a particular application.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is missing or incorrect?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Source evidence
+      description: Link to a manufacturer catalog or give the document name, page and relevant fitment conditions. Please distinguish an observed fact from a guess.
